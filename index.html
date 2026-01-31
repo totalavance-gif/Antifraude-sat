@@ -3,31 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Antifraude SAT</title>
+<title>Antifraude SAT · Unificado</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
 
 <style>
-:root{
- --bg:#f4f6f8; --card:#fff; --text:#1f2937;
- --green:#16a34a; --yellow:#f59e0b; --red:#dc2626;
-}
-body{margin:0;font-family:system-ui;background:var(--bg);color:var(--text)}
-.container{max-width:1000px;margin:auto;padding:24px}
-.card{background:var(--card);border-radius:14px;padding:20px;margin-bottom:20px;
-box-shadow:0 6px 18px rgba(0,0,0,.06)}
-.ok{border-left:6px solid var(--green)}
-.warn{border-left:6px solid var(--yellow)}
-.bad{border-left:6px solid var(--red)}
-input,button{width:100%;padding:12px;margin-top:8px}
-button{background:#2563eb;color:#fff;border:none;border-radius:10px}
+body{margin:0;font-family:system-ui;background:#f4f6f8}
+.container{max-width:1100px;margin:auto;padding:20px}
+.card{background:#fff;border-radius:14px;padding:20px;margin-bottom:20px;
+box-shadow:0 6px 18px rgba(0,0,0,.08)}
 .hidden{display:none}
-.tag{font-size:.75rem;padding:2px 8px;border-radius:10px;margin-left:6px}
-.okTag{background:#dcfce7;color:#166534}
-.warnTag{background:#fef3c7;color:#92400e}
-.badTag{background:#fee2e2;color:#991b1b}
+input,button{width:100%;padding:10px;margin-top:6px}
+button{background:#2563eb;color:#fff;border:none;border-radius:10px}
+.red{background:#dc2626}
+.green{background:#16a34a}
+.bad{border-left:6px solid #dc2626}
+.warn{border-left:6px solid #f59e0b}
+.ok{border-left:6px solid #16a34a}
+small{color:#64748b}
 </style>
 </head>
 
@@ -39,171 +34,188 @@ button{background:#2563eb;color:#fff;border:none;border-radius:10px}
 <h2>🔐 Acceso</h2>
 <input id="user" placeholder="Usuario">
 <input id="pass" type="password" placeholder="Contraseña">
-<button onclick="login()">Entrar</button>
+<button onclick="loginUser()">Entrar como usuario</button>
+<hr>
+<input id="adminPass" type="password" placeholder="Contraseña admin">
+<button onclick="loginAdmin()" class="red">Entrar como admin</button>
 </div>
 
-<!-- APP -->
-<div id="app" class="hidden">
+<!-- USUARIO -->
+<div id="userPanel" class="hidden">
 
-<h1>🔍 Antifraude SAT v3.0</h1>
-<p>Usuario: <b id="currentUser"></b></p>
+<h2>👤 Panel Usuario</h2>
+<p>Usuario: <b id="userName"></b></p>
 
-<button onclick="logoutUser()" style="background:#dc2626">
-Cerrar sesión
-</button>
+<button onclick="logout()" class="red">Cerrar sesión</button>
 
 <div class="card">
-  <h3>📄 Subir constancia SAT (PDF)</h3>
+  <h3>📄 Analizar PDF SAT</h3>
   <input type="file" accept="application/pdf" id="pdfInput">
 </div>
 
-<div id="output"></div>
+<div id="result"></div>
 
 </div>
+
+<!-- ADMIN -->
+<div id="adminPanel" class="hidden">
+
+<h2>🛡️ Panel Administrador</h2>
+
+<button onclick="logout()" class="red">Cerrar sesión</button>
+
+<div class="card">
+<h3>➕ Crear usuario</h3>
+<input id="newUser" placeholder="Usuario">
+<input id="newPass" placeholder="Contraseña">
+<button onclick="createUser()" class="green">Crear</button>
+</div>
+
+<div class="card">
+<h3>👥 Usuarios</h3>
+<ul id="usersList"></ul>
+</div>
+
+<div class="card">
+<h3>📊 Historial global</h3>
+<ul id="history"></ul>
+</div>
+
+</div>
+
 </div>
 
 <script>
-/* ========= LOGIN ========= */
-function getUsers(){
-  return JSON.parse(localStorage.getItem("users")||"[]");
-}
-function login(){
-  const u=user.value.trim();
-  const p=pass.value.trim();
-  const ok=getUsers().find(x=>x.username===u && x.password===p);
-  if(!ok) return alert("Credenciales inválidas");
-  localStorage.setItem("sessionUser",u);
-  start();
-}
-function logoutUser(){
-  localStorage.removeItem("sessionUser");
-  location.reload();
-}
-function start(){
-  const u=localStorage.getItem("sessionUser");
-  if(!u) return;
-  loginBox.classList.add("hidden");
-  app.classList.remove("hidden");
-  currentUser.textContent=u;
-}
-start();
-
-/* ========= PDF ========= */
+/* ================= CONFIG ================= */
+const ADMIN_PASSWORD="satadmin123";
 pdfjsLib.GlobalWorkerOptions.workerSrc =
 "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
-const WEIGHTS={
-  MIXED_QR:10,ASALARIADO1:9,DOUBLE_EMISSION:8,PLACEHOLDERS:8,
-  RFC_INCONSISTENT:7,IDCIF_MISSING:3,MULTI_DOMAINS:4,
-  ALL_GOB_QR:-3,QR_INTERNO:-2,COHERENT_DATES:-3
-};
-
-document.getElementById("pdfInput").addEventListener("change", analyzePDF);
-
-/* ========= QR ========= */
-function scanMultipleQR(canvas,page){
-  const ctx=canvas.getContext("2d");
-  const zones=[
-    {y:0,h:canvas.height/3},
-    {y:canvas.height/3,h:canvas.height/3},
-    {y:(canvas.height/3)*2,h:canvas.height/3}
-  ];
-  const found=[];
-  zones.forEach(z=>{
-    const img=ctx.getImageData(0,z.y,canvas.width,z.h);
-    const qr=jsQR(img.data,img.width,img.height);
-    if(qr){
-      let domain="inválido",isGob=false,type="sospechoso";
-      try{
-        const url=new URL(qr.data);
-        domain=url.hostname;
-        isGob=domain.endsWith(".gob.mx");
-        if(isGob) type=/siat|validador/i.test(qr.data)?"validación":"interno";
-      }catch{}
-      found.push({page,domain,isGob,type});
-    }
-  });
-  return found;
+/* ================= SESSION ================= */
+function logout(){
+  localStorage.removeItem("session");
+  location.reload();
 }
 
-/* ========= ANALYSIS ========= */
+/* ================= USERS ================= */
+function getUsers(){
+  return JSON.parse(localStorage.getItem("users")||"[]");
+}
+function saveUsers(u){
+  localStorage.setItem("users",JSON.stringify(u));
+}
+
+/* ================= LOGIN ================= */
+function loginUser(){
+  const u=user.value.trim(), p=pass.value.trim();
+  const ok=getUsers().find(x=>x.username===u && x.password===p);
+  if(!ok) return alert("Credenciales incorrectas");
+  localStorage.setItem("session",JSON.stringify({role:"user",user:u}));
+  init();
+}
+
+function loginAdmin(){
+  if(adminPass.value!==ADMIN_PASSWORD)
+    return alert("Contraseña admin incorrecta");
+  localStorage.setItem("session",JSON.stringify({role:"admin"}));
+  init();
+}
+
+/* ================= INIT ================= */
+function init(){
+  const s=JSON.parse(localStorage.getItem("session")||"null");
+  if(!s) return;
+  loginBox.classList.add("hidden");
+
+  if(s.role==="user"){
+    userPanel.classList.remove("hidden");
+    userName.textContent=s.user;
+  }
+  if(s.role==="admin"){
+    adminPanel.classList.remove("hidden");
+    loadUsers();
+    loadHistory();
+  }
+}
+init();
+
+/* ================= ADMIN ================= */
+function createUser(){
+  const u=newUser.value.trim(), p=newPass.value.trim();
+  if(!u||!p) return alert("Datos incompletos");
+  const users=getUsers();
+  if(users.find(x=>x.username===u)) return alert("Usuario existe");
+  users.push({username:u,password:p});
+  saveUsers(users);
+  newUser.value="";newPass.value="";
+  loadUsers();
+}
+
+function deleteUser(i){
+  if(!confirm("¿Eliminar usuario?")) return;
+  const u=getUsers();
+  u.splice(i,1);
+  saveUsers(u);
+  loadUsers();
+}
+
+function loadUsers(){
+  usersList.innerHTML=getUsers().map((u,i)=>`
+    <li>${u.username}
+      <button onclick="deleteUser(${i})" class="red">Eliminar</button>
+    </li>`).join("");
+}
+
+/* ================= ANALYSIS ================= */
+document.getElementById("pdfInput").addEventListener("change", analyzePDF);
+
 async function analyzePDF(e){
-  const out=document.getElementById("output");
-  out.innerHTML="";
   const file=e.target.files[0];
-  if(!file)return;
+  if(!file) return;
 
   const pdf=await pdfjsLib.getDocument(await file.arrayBuffer()).promise;
-  let text="",qrs=[],features=[],score=0;
+  let text="",score=0,features=[];
 
   for(let i=1;i<=pdf.numPages;i++){
     const page=await pdf.getPage(i);
     const tc=await page.getTextContent();
-    text+=" "+tc.items.map(t=>t.str).join(" ");
-
-    const vp=page.getViewport({scale:2});
-    const canvas=document.createElement("canvas");
-    canvas.width=vp.width;canvas.height=vp.height;
-    await page.render({canvasContext:canvas.getContext("2d"),viewport:vp}).promise;
-
-    qrs.push(...scanMultipleQR(canvas,i));
+    text+=tc.items.map(t=>t.str).join(" ");
   }
 
-  const rfcs=[...new Set(text.match(/[A-Z]{4}\d{6}[A-Z0-9]{3}/g)||[])];
-  if(rfcs.length!==1){score+=WEIGHTS.RFC_INCONSISTENT;features.push("RFC inconsistente");}
-  if(/Asalariado1/.test(text)){score+=WEIGHTS.ASALARIADO1;features.push("Error Asalariado1");}
-  if(!/idCIF:\s*\d+/.test(text)){score+=WEIGHTS.IDCIF_MISSING;features.push("idCIF ausente");}
+  if(/Asalariado1/.test(text)){score+=9;features.push("Error Asalariado1");}
+  if(!/idCIF:\s*\d+/.test(text)){score+=3;features.push("idCIF ausente");}
 
-  const dates=text.match(/\d{2}\/\d{2}\/\d{4}/g)||[];
-  if(new Set(dates).size>1){score+=WEIGHTS.DOUBLE_EMISSION;features.push("Fechas múltiples");}
-  else score+=WEIGHTS.COHERENT_DATES;
+  let level="ok",res="🟢 ORIGINAL";
+  if(score>=7){level="bad";res="🔴 POSIBLE CLON";}
+  else if(score>=3){level="warn";res="🟡 SOSPECHOSO";}
 
-  const gob=qrs.filter(q=>q.isGob);
-  const nonGob=qrs.filter(q=>!q.isGob);
-  const domains=[...new Set(qrs.map(q=>q.domain))];
+  saveAnalysis(score,res,features);
 
-  if(gob.length&&nonGob.length){score+=WEIGHTS.MIXED_QR;features.push("QR mixtos");}
-  if(domains.length>1&&nonGob.length){score+=WEIGHTS.MULTI_DOMAINS;features.push("Dominios distintos");}
-  if(nonGob.length===0&&gob.length>0){score+=WEIGHTS.ALL_GOB_QR;}
-  qrs.forEach(q=>{if(q.type==="interno")score+=WEIGHTS.QR_INTERNO});
-
-  let level="ok",result="🟢 ORIGINAL";
-  if(score>=7){level="bad";result="🔴 POSIBLE CLON";}
-  else if(score>=3){level="warn";result="🟡 SOSPECHOSO";}
-
-  saveAnalysis(score,result,features);
-
-  out.innerHTML=`
+  result.innerHTML=`
   <div class="card ${level}">
-    <h3>${result}</h3>
-    <p><b>Score:</b> ${score}</p>
+    <h3>${res}</h3>
+    <p>Score: ${score}</p>
     <ul>${features.map(f=>`<li>${f}</li>`).join("")}</ul>
-  </div>
-
-  <div class="card">
-    <h4>🔍 QRs detectados</h4>
-    <ul>
-      ${qrs.map(q=>`
-        <li>
-          Página ${q.page} → ${q.domain}
-          <span class="tag ${q.type==="validación"?"okTag":q.type==="interno"?"warnTag":"badTag"}">
-            ${q.type}
-          </span>
-        </li>
-      `).join("")}
-    </ul>
   </div>`;
 }
 
-/* ========= SAVE ========= */
+/* ================= STORAGE ================= */
 function saveAnalysis(score,result,features){
-  const user=localStorage.getItem("sessionUser");
-  const data=JSON.parse(localStorage.getItem("analysis")||"[]");
-  data.push({
-    user,score,result,features,
+  const s=JSON.parse(localStorage.getItem("session"));
+  const h=JSON.parse(localStorage.getItem("analysis")||"[]");
+  h.push({
+    user:s.user||"admin",
+    score,result,features,
     date:new Date().toLocaleString()
   });
-  localStorage.setItem("analysis",JSON.stringify(data));
+  localStorage.setItem("analysis",JSON.stringify(h));
+}
+
+function loadHistory(){
+  const h=JSON.parse(localStorage.getItem("analysis")||"[]");
+  history.innerHTML=h.slice().reverse().map(x=>`
+    <li><b>${x.user}</b> · ${x.date}<br>${x.result} (Score ${x.score})</li>
+  `).join("");
 }
 </script>
 </body>
