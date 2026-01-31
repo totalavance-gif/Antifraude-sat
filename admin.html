@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin · Antifraude SAT</title>
+
+<style>
+:root{
+ --bg:#0f172a; --card:#020617; --text:#e5e7eb;
+ --green:#22c55e; --yellow:#facc15; --red:#ef4444;
+}
+body{
+ margin:0;font-family:system-ui;
+ background:linear-gradient(135deg,#020617,#0f172a);
+ color:var(--text)
+}
+.container{max-width:1100px;margin:auto;padding:30px}
+.card{
+ background:var(--card);
+ border-radius:14px;
+ padding:20px;
+ margin-bottom:20px;
+ box-shadow:0 10px 30px rgba(0,0,0,.6)
+}
+input,button{
+ width:100%;padding:12px;
+ border-radius:10px;border:none;
+ margin-top:10px;font-size:1rem
+}
+button{background:#2563eb;color:#fff;cursor:pointer}
+button:hover{background:#1d4ed8}
+.stat{
+ display:flex;justify-content:space-between;
+ padding:10px;border-bottom:1px solid #1e293b
+}
+.bad{color:var(--red)}
+.warn{color:var(--yellow)}
+.ok{color:var(--green)}
+.hidden{display:none}
+ul{padding-left:18px}
+footer{text-align:center;font-size:.85rem;color:#94a3b8;margin-top:40px}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>🛡️ Panel Admin · Antifraude SAT</h1>
+<p>Acceso restringido · Lectura forense de análisis locales</p>
+
+<!-- LOGIN -->
+<div class="card" id="loginBox">
+  <h3>🔐 Autenticación</h3>
+  <input type="password" id="pass" placeholder="Contraseña admin">
+  <button onclick="login()">Entrar</button>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard" class="hidden">
+
+  <div class="card">
+    <h3>📊 Métricas</h3>
+    <div class="stat">Total analizados <b id="total"></b></div>
+    <div class="stat bad">Clones detectados <b id="bad"></b></div>
+    <div class="stat warn">Sospechosos <b id="warn"></b></div>
+    <div class="stat ok">Originales <b id="ok"></b></div>
+  </div>
+
+  <div class="card">
+    <h3>📂 Historial</h3>
+    <ul id="history"></ul>
+  </div>
+
+  <div class="card">
+    <button onclick="exportJSON()">⬇️ Exportar historial</button>
+    <button onclick="clearData()" style="background:#991b1b">🗑️ Borrar historial</button>
+    <button onclick="logout()" style="background:#334155">Cerrar sesión</button>
+  </div>
+
+</div>
+
+<footer>
+Panel Admin · Análisis 100% local · SAT Antifraude v3
+</footer>
+
+</div>
+
+<script>
+/* =============================
+   CONFIG
+============================= */
+const ADMIN_PASSWORD = "satadmin123"; // CAMBIA ESTO
+
+/* =============================
+   LOGIN
+============================= */
+function login(){
+  if(document.getElementById("pass").value === ADMIN_PASSWORD){
+    document.getElementById("loginBox").style.display="none";
+    document.getElementById("dashboard").classList.remove("hidden");
+    loadStats();
+  } else {
+    alert("Acceso denegado");
+  }
+}
+
+function logout(){
+  location.reload();
+}
+
+/* =============================
+   DATA
+============================= */
+function loadStats(){
+  const data = JSON.parse(localStorage.getItem("satHistory") || "[]");
+
+  document.getElementById("total").textContent = data.length;
+  document.getElementById("bad").textContent =
+    data.filter(d=>d.result.includes("CLON")).length;
+  document.getElementById("warn").textContent =
+    data.filter(d=>d.result.includes("SOSPECHOSO")).length;
+  document.getElementById("ok").textContent =
+    data.filter(d=>d.result.includes("ORIGINAL")).length;
+
+  const list = document.getElementById("history");
+  list.innerHTML = data.reverse().map(d=>`
+    <li>
+      <b>${d.date}</b><br>
+      ${d.result} — Score: ${d.score}
+      <ul>
+        ${d.features.map(f=>`<li>${f}</li>`).join("")}
+      </ul>
+    </li>
+  `).join("");
+}
+
+/* =============================
+   EXPORT / CLEAR
+============================= */
+function exportJSON(){
+  const data = localStorage.getItem("satHistory");
+  const blob = new Blob([data],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="antifraude_sat_historial.json";
+  a.click();
+}
+
+function clearData(){
+  if(confirm("¿Eliminar todo el historial?")){
+    localStorage.removeItem("satHistory");
+    loadStats();
+  }
+}
+</script>
+
+</body>
+</html>

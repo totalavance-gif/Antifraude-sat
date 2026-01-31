@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+
+<html lang="es">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Antifraude SAT v3.0</title>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+
+
+<style>
+
+:root{
+
+ --bg:#f4f6f8; --card:#fff; --text:#1f2937;
+
+ --green:#16a34a; --yellow:#f59e0b; --red:#dc2626;
+
+}
+
+body{margin:0;font-family:system-ui;background:var(--bg);color:var(--text)}
+
+.container{max-width:1000px;margin:auto;padding:24px}
+
+.card{background:var(--card);border-radius:14px;padding:20px;margin-bottom:20px;
+
+box-shadow:0 6px 18px rgba(0,0,0,.06)}
+
+.ok{border-left:6px solid var(--green)}
+
+.warn{border-left:6px solid var(--yellow)}
+
+.bad{border-left:6px solid var(--red)}
+
+input{width:100%;padding:12px;border:1px dashed #cbd5e1;border-radius:10px}
+
+ul{padding-left:18px}
+
+.tag{font-size:.75rem;padding:2px 8px;border-radius:10px;margin-left:6px}
+
+.okTag{background:#dcfce7;color:#166534}
+
+.warnTag{background:#fef3c7;color:#92400e}
+
+.badTag{background:#fee2e2;color:#991b1b}
+
+footer{text-align:center;color:#6b7280;font-size:.85rem;margin-top:40px}
+
+</style>
+
+</head>
+
+
+<body>
+
+<div class="container">
+
+
+<h1>🔍 Antifraude SAT v3.0</h1>
+
+<p>Escaneo completo de constancias fiscales (PDF).  
+
+Detecta documentos clonados incluso con QR legítimos.</p>
+
+
+<div class="card">
+
+  <h3>📄 Subir constancia SAT (PDF)</h3>
+
+  <input type="file" accept="application/pdf" id="pdfInput">
+
+</div>
+
+
+<div id="output"></div>
+
+
+<footer>
+
+Análisis local · No se suben ni guardan  archivos 5647385519 · v3.0
+
+</footer>
+
+</div>
+
+
+<script>
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+
+ "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+
+/* =============================
+
+   MODELO DE PESOS v3
+
+============================= */
+
+const WEIGHTS = {
+
+  MIXED_QR: 10,
+
+  ASALARIADO1: 9,
+
+  DOUBLE_EMISSION: 8,
+
+  PLACEHOLDERS: 8,
+
+  BAD_ORDER: 7,
+
+  RFC_INCONSISTENT: 7,
+
+  TEXT_CUT: 3,
+
+  DUP_HEADERS: 3,
+
+  IDCIF_MISSING: 3,
+
+  MULTI_DOMAINS: 4,
+
+  ALL_GOB_QR: -3,
+
+  QR_INTERNO: -2,
+
+  CLEAN_TEXT: -4,
+
+  GOOD_ORDER: -4,
+
+  COHERENT_DATES: -3
+
+};
+
+
+document.getElementById("pdfInput").addEventListener("change", analyzePDF);
+
+
+/* =============================
+
+   MULTI QR SCAN
+
+============================= */
+
+function scanMultipleQR(canvas, page) {
+
+  const ctx = canvas.getContext("2d");
+
+  const regions = [
+
+    {y:0,h:canvas.height/3},
+
+    {y:canvas.height/3,h:canvas.height/3},
+
+    {y:(canvas.height/3)*2,h:canvas.height/3}
+
+  ];
+
+  const found=[];
+
+  regions.forEach((r,i)=>{
+
+    const img=ctx.getImageData(0,r.y,canvas.width,r.h);
+
+    const qr=jsQR(img.data,img.width,img.height);
+
+    if(qr){
+
+      let domain="inválido",isGob=false,type="sospechoso";
+
+      try{
+
+        const url=new URL(qr.data);
+
+        domain=url.hostname;
+
+        isGob=domain.endsWith(".gob.mx");
+
+        if(isGob){
+
+          type=/siat|validador/i.test(qr.data)?"validación":"interno";
+
+        }
+
+      }catch{}
+
+      found.push({page,region:i+1,domain,isGob,type});
+
+    }
+
+  });
+
+  return found;
+
+}
+
+
+/* =============================
+
+   MAIN
+
+============================= */
+
+async function analyzePDF(e){
+
+  const out=document.getElementById("output");
+
+  out.innerHTML="";
+
+  const file=e.target.files[0];
+
+  if(!file)return;
+
+
+  const pdf=await pdfjsLib.getDocument(await file.arrayBuffer()).promise;
+
+
+  let text="",qrs=[],features=[],score=0;
+
+
+  for(let i=1;i<=pdf.numPages;i++){
+
+    const page=await pdf.getPage(i);
+
+
+    const tc=await page.getTextContent();
+
+    const pageText=tc.items.map(t=>t.str).join(" ");
+
+    text+=" "+pageText;
+
+
+    const vp=page.getViewport({scale:2});
+
+    const canvas=document.createElement("canvas");
+
+    canvas.width=vp.width;canvas.height=vp.height;
+
+    await page.render({canvasContext:canvas.getContext("2d"),viewport:vp}).promise;
+
+
+    qrs.push(...scanMultipleQR(canvas,i));
+
+  }
+
+
+  /* ========= FEATURES ========= */
+
+  const rfcs=[...new Set(text.match(/[A-Z]{4}\d{6}[A-Z0-9]{3}/g)||[])];
+
+  if(rfcs.length!==1){score+=WEIGHTS.RFC_INCONSISTENT;features.push("RFC inconsistente");}
+
+
+  if(/Asalariado1/.test(text)){score+=WEIGHTS.ASALARIADO1;features.push("Error 'Asalariado1'");}
+
+
+  if(!/idCIF:\s*\d+/.test(text)){score+=WEIGHTS.IDCIF_MISSING;features.push("idCIF ausente");}
+
+
+  if(/RFC:\s*CURP:/i.test(text)){score+=WEIGHTS.PLACEHOLDERS;features.push("Placeholders vacíos");}
+
+
+  const dates=text.match(/\d{2}\/\d{2}\/\d{4}/g)||[];
+
+  if(new Set(dates).size>1){score+=WEIGHTS.DOUBLE_EMISSION;features.push("Múltiples fechas de emisión");}
+
+  else score+=WEIGHTS.COHERENT_DATES;
+
+
+  /* ========= QR FEATURES ========= */
+
+  const gob=qrs.filter(q=>q.isGob);
+
+  const nonGob=qrs.filter(q=>!q.isGob);
+
+  const domains=[...new Set(qrs.map(q=>q.domain))];
+
+
+  if(gob.length&&nonGob.length){score+=WEIGHTS.MIXED_QR;features.push("Mezcla QR oficial/no oficial");}
+
+  if(domains.length>1&&nonGob.length){score+=WEIGHTS.MULTI_DOMAINS;features.push("Dominios QR distintos");}
+
+  if(nonGob.length===0&&gob.length>0){score+=WEIGHTS.ALL_GOB_QR;}
+
+
+  qrs.forEach(q=>{
+
+    if(q.type==="interno")score+=WEIGHTS.QR_INTERNO;
+
+  });
+
+
+  /* ========= CLASIFICACIÓN ========= */
+
+  let level="ok",result="🟢 Documento ORIGINAL del SAT";
+
+  if(score>=7){level="bad";result="🔴 POSIBLE CLON";}
+
+  else if(score>=3){level="warn";result="🟡 Documento SOSPECHOSO";}
+
+
+  /* ========= RENDER ========= */
+
+  out.innerHTML=`
+
+  <div class="card ${level}">
+
+    <h3>${result}</h3>
+
+    <p><b>Score final:</b> ${score}</p>
+
+    <ul>${features.map(f=>`<li>${f}</li>`).join("")}</ul>
+
+  </div>
+
+
+  <div class="card">
+
+    <h4>🔍 Análisis de QRs</h4>
+
+    <ul>
+
+      ${qrs.map(q=>`
+
+        <li>
+
+          Página ${q.page} → ${q.domain}
+
+          <span class="tag ${q.type==="validación"?"okTag":q.type==="interno"?"warnTag":"badTag"}">
+
+            ${q.type}
+
+          </span>
+
+        </li>
+
+      `).join("")}
+
+    </ul>
+
+    <small>Nota: QRs internos del SAT pueden no devolver datos públicos.</small>
+
+  </div>`;
+
+}
+
+</script>
+
+</body>
+
+</html>
+
