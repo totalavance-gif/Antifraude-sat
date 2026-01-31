@@ -36,7 +36,7 @@ button{background:#2563eb;color:#fff;border:none;border-radius:10px}
 
 <!-- LOGIN -->
 <div id="loginBox" class="card">
-<h2>🔐 Acceso Antifraude SAT</h2>
+<h2>🔐 Acceso</h2>
 <input id="user" placeholder="Usuario">
 <input id="pass" type="password" placeholder="Contraseña">
 <button onclick="login()">Entrar</button>
@@ -46,7 +46,7 @@ button{background:#2563eb;color:#fff;border:none;border-radius:10px}
 <div id="app" class="hidden">
 
 <h1>🔍 Antifraude SAT v3.0</h1>
-<p>Usuario activo: <b id="currentUser"></b></p>
+<p>Usuario: <b id="currentUser"></b></p>
 
 <div class="card">
   <h3>📄 Subir constancia SAT (PDF)</h3>
@@ -59,36 +59,28 @@ button{background:#2563eb;color:#fff;border:none;border-radius:10px}
 </div>
 
 <script>
-/* =============================
-   LOGIN
-============================= */
+/* ========= LOGIN ========= */
 function getUsers(){
   return JSON.parse(localStorage.getItem("users")||"[]");
 }
-
 function login(){
   const u=user.value.trim();
   const p=pass.value.trim();
-  const users=getUsers();
-  const ok=users.find(x=>x.username===u && x.password===p);
+  const ok=getUsers().find(x=>x.username===u&&x.password===p);
   if(!ok) return alert("Credenciales inválidas");
   localStorage.setItem("sessionUser",u);
-  startApp();
+  start();
 }
-
-function startApp(){
+function start(){
   const u=localStorage.getItem("sessionUser");
   if(!u) return;
   loginBox.classList.add("hidden");
   app.classList.remove("hidden");
   currentUser.textContent=u;
 }
+start();
 
-startApp();
-
-/* =============================
-   PDF CONFIG
-============================= */
+/* ========= PDF ========= */
 pdfjsLib.GlobalWorkerOptions.workerSrc =
 "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -100,19 +92,17 @@ const WEIGHTS={
 
 document.getElementById("pdfInput").addEventListener("change", analyzePDF);
 
-/* =============================
-   QR SCAN
-============================= */
+/* ========= QR ========= */
 function scanMultipleQR(canvas,page){
   const ctx=canvas.getContext("2d");
-  const regions=[
+  const zones=[
     {y:0,h:canvas.height/3},
     {y:canvas.height/3,h:canvas.height/3},
     {y:(canvas.height/3)*2,h:canvas.height/3}
   ];
   const found=[];
-  regions.forEach((r,i)=>{
-    const img=ctx.getImageData(0,r.y,canvas.width,r.h);
+  zones.forEach(z=>{
+    const img=ctx.getImageData(0,z.y,canvas.width,z.h);
     const qr=jsQR(img.data,img.width,img.height);
     if(qr){
       let domain="inválido",isGob=false,type="sospechoso";
@@ -128,9 +118,7 @@ function scanMultipleQR(canvas,page){
   return found;
 }
 
-/* =============================
-   ANALYSIS
-============================= */
+/* ========= ANALYSIS ========= */
 async function analyzePDF(e){
   const out=document.getElementById("output");
   out.innerHTML="";
@@ -149,6 +137,7 @@ async function analyzePDF(e){
     const canvas=document.createElement("canvas");
     canvas.width=vp.width;canvas.height=vp.height;
     await page.render({canvasContext:canvas.getContext("2d"),viewport:vp}).promise;
+
     qrs.push(...scanMultipleQR(canvas,i));
   }
 
@@ -159,14 +148,14 @@ async function analyzePDF(e){
   if(!/idCIF:\s*\d+/.test(text)){score+=WEIGHTS.IDCIF_MISSING;features.push("idCIF ausente");}
 
   const dates=text.match(/\d{2}\/\d{2}\/\d{4}/g)||[];
-  if(new Set(dates).size>1){score+=WEIGHTS.DOUBLE_EMISSION;features.push("Múltiples fechas");}
+  if(new Set(dates).size>1){score+=WEIGHTS.DOUBLE_EMISSION;features.push("Fechas múltiples");}
   else score+=WEIGHTS.COHERENT_DATES;
 
   const gob=qrs.filter(q=>q.isGob);
   const nonGob=qrs.filter(q=>!q.isGob);
   const domains=[...new Set(qrs.map(q=>q.domain))];
 
-  if(gob.length&&nonGob.length){score+=WEIGHTS.MIXED_QR;features.push("QR mezclados");}
+  if(gob.length&&nonGob.length){score+=WEIGHTS.MIXED_QR;features.push("QR mixtos");}
   if(domains.length>1&&nonGob.length){score+=WEIGHTS.MULTI_DOMAINS;features.push("Dominios distintos");}
   if(nonGob.length===0&&gob.length>0){score+=WEIGHTS.ALL_GOB_QR;}
   qrs.forEach(q=>{if(q.type==="interno")score+=WEIGHTS.QR_INTERNO});
@@ -175,6 +164,7 @@ async function analyzePDF(e){
   if(score>=7){level="bad";result="🔴 POSIBLE CLON";}
   else if(score>=3){level="warn";result="🟡 SOSPECHOSO";}
 
+  /* 🔴 ESTA LÍNEA ES LA CLAVE */
   saveAnalysis(score,result,features);
 
   out.innerHTML=`
@@ -182,18 +172,29 @@ async function analyzePDF(e){
     <h3>${result}</h3>
     <p><b>Score:</b> ${score}</p>
     <ul>${features.map(f=>`<li>${f}</li>`).join("")}</ul>
+  </div>
+
+  <div class="card">
+    <h4>🔍 QRs detectados</h4>
+    <ul>
+      ${qrs.map(q=>`
+        <li>
+          Página ${q.page} → ${q.domain}
+          <span class="tag ${q.type==="validación"?"okTag":q.type==="interno"?"warnTag":"badTag"}">
+            ${q.type}
+          </span>
+        </li>
+      `).join("")}
+    </ul>
   </div>`;
 }
 
-/* =============================
-   SAVE HISTORY
-============================= */
+/* ========= SAVE ========= */
 function saveAnalysis(score,result,features){
   const user=localStorage.getItem("sessionUser");
   const data=JSON.parse(localStorage.getItem("analysis")||"[]");
   data.push({
-    user,score,result,
-    features,
+    user,score,result,features,
     date:new Date().toLocaleString()
   });
   localStorage.setItem("analysis",JSON.stringify(data));
