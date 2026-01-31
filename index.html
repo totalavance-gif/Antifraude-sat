@@ -3,195 +3,90 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Antifraude SAT v3.1</title>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+<title>Antifraude SAT</title>
 
 <style>
-:root{
- --bg:#f4f6f8; --card:#fff; --text:#1f2937;
- --green:#16a34a; --yellow:#f59e0b; --red:#dc2626;
-}
-body{margin:0;font-family:system-ui;background:var(--bg);color:var(--text)}
-.container{max-width:1000px;margin:auto;padding:24px}
-.card{background:var(--card);border-radius:14px;padding:20px;margin-bottom:20px;
-box-shadow:0 6px 18px rgba(0,0,0,.06)}
-.ok{border-left:6px solid var(--green)}
-.warn{border-left:6px solid var(--yellow)}
-.bad{border-left:6px solid var(--red)}
-input{width:100%;padding:12px;border:1px dashed #cbd5e1;border-radius:10px}
-ul{padding-left:18px}
-.tag{font-size:.75rem;padding:2px 8px;border-radius:10px;margin-left:6px}
-.okTag{background:#dcfce7;color:#166534}
-.warnTag{background:#fef3c7;color:#92400e}
-.badTag{background:#fee2e2;color:#991b1b}
-footer{text-align:center;color:#6b7280;font-size:.85rem;margin-top:40px}
+body{font-family:system-ui;background:#f8fafc;margin:0}
+.container{max-width:900px;margin:auto;padding:20px}
+.card{background:#fff;border-radius:14px;padding:20px;margin-bottom:20px;
+box-shadow:0 6px 16px rgba(0,0,0,.08)}
+input,button{padding:10px;width:100%;margin-top:6px}
+button{background:#16a34a;color:#fff;border:none;border-radius:10px}
+.hidden{display:none}
 </style>
 </head>
 
 <body>
 <div class="container">
 
-<h1>🔍 Antifraude SAT v3.1</h1>
-<p>Escaneo completo de constancias fiscales (PDF).  
-Detecta documentos clonados incluso con QR legítimos.</p>
-
-<div class="card">
-  <h3>📄 Subir constancia SAT (PDF)</h3>
-  <input type="file" accept="application/pdf" id="pdfInput">
+<!-- LOGIN -->
+<div id="loginBox" class="card">
+<h2>🔐 Acceso Antifraude</h2>
+<input id="user" placeholder="Usuario">
+<input id="pass" type="password" placeholder="Contraseña">
+<button onclick="login()">Entrar</button>
 </div>
 
-<div id="output"></div>
+<!-- APP -->
+<div id="app" class="hidden">
 
-<footer>
-Análisis local · GitHub Pages · v3.1
-</footer>
+<h2>🔍 Antifraude SAT</h2>
+<p>Usuario: <b id="currentUser"></b></p>
+
+<div class="card">
+<h3>Simulación de análisis</h3>
+<button onclick="fakeAnalysis()">Ejecutar análisis</button>
+</div>
+
+<div id="result"></div>
+
+</div>
 </div>
 
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc =
- "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+function getUsers(){
+  return JSON.parse(localStorage.getItem("users")||"[]");
+}
 
-/* =============================
-   STORAGE (CLAVE PARA ADMIN)
-============================= */
-function saveAnalysis(score, result, features){
-  const history = JSON.parse(localStorage.getItem("satHistory") || "[]");
-  history.push({
-    date: new Date().toLocaleString(),
+function login(){
+  const u=user.value.trim();
+  const p=pass.value.trim();
+  const users=getUsers();
+  const ok=users.find(x=>x.username===u&&x.password===p);
+  if(!ok) return alert("Credenciales inválidas");
+
+  localStorage.setItem("sessionUser",u);
+  startApp();
+}
+
+function startApp(){
+  const u=localStorage.getItem("sessionUser");
+  if(!u) return;
+  loginBox.classList.add("hidden");
+  app.classList.remove("hidden");
+  currentUser.textContent=u;
+}
+
+function saveAnalysis(score,result){
+  const user=localStorage.getItem("sessionUser");
+  const data=JSON.parse(localStorage.getItem("analysis")||"[]");
+  data.push({
+    user,
     score,
     result,
-    features
+    date:new Date().toLocaleString()
   });
-  localStorage.setItem("satHistory", JSON.stringify(history));
+  localStorage.setItem("analysis",JSON.stringify(data));
 }
 
-/* =============================
-   MODELO DE PESOS
-============================= */
-const WEIGHTS = {
-  MIXED_QR: 10,
-  ASALARIADO1: 9,
-  DOUBLE_EMISSION: 8,
-  PLACEHOLDERS: 8,
-  RFC_INCONSISTENT: 7,
-  IDCIF_MISSING: 3,
-  MULTI_DOMAINS: 4,
-  ALL_GOB_QR: -3,
-  QR_INTERNO: -2,
-  COHERENT_DATES: -3
-};
-
-document.getElementById("pdfInput").addEventListener("change", analyzePDF);
-
-/* =============================
-   MULTI QR SCAN
-============================= */
-function scanMultipleQR(canvas, page) {
-  const ctx = canvas.getContext("2d");
-  const regions = [
-    {y:0,h:canvas.height/3},
-    {y:canvas.height/3,h:canvas.height/3},
-    {y:(canvas.height/3)*2,h:canvas.height/3}
-  ];
-  const found=[];
-  regions.forEach((r,i)=>{
-    const img=ctx.getImageData(0,r.y,canvas.width,r.h);
-    const qr=jsQR(img.data,img.width,img.height);
-    if(qr){
-      let domain="inválido",isGob=false,type="sospechoso";
-      try{
-        const url=new URL(qr.data);
-        domain=url.hostname;
-        isGob=domain.endsWith(".gob.mx");
-        if(isGob){
-          type=/siat|validador/i.test(qr.data)?"validación":"interno";
-        }
-      }catch{}
-      found.push({page,region:i+1,domain,isGob,type});
-    }
-  });
-  return found;
+function fakeAnalysis(){
+  const score=Math.floor(Math.random()*10);
+  const result=score>=7?"🔴 POSIBLE CLON":score>=3?"🟡 SOSPECHOSO":"🟢 ORIGINAL";
+  saveAnalysis(score,result);
+  resultDiv.innerHTML=`<div class="card"><b>${result}</b><br>Score ${score}</div>`;
 }
 
-/* =============================
-   MAIN
-============================= */
-async function analyzePDF(e){
-  const out=document.getElementById("output");
-  out.innerHTML="";
-  const file=e.target.files[0];
-  if(!file)return;
-
-  const pdf=await pdfjsLib.getDocument(await file.arrayBuffer()).promise;
-
-  let text="",qrs=[],features=[],score=0;
-
-  for(let i=1;i<=pdf.numPages;i++){
-    const page=await pdf.getPage(i);
-
-    const tc=await page.getTextContent();
-    text+=" "+tc.items.map(t=>t.str).join(" ");
-
-    const vp=page.getViewport({scale:2});
-    const canvas=document.createElement("canvas");
-    canvas.width=vp.width;canvas.height=vp.height;
-    await page.render({canvasContext:canvas.getContext("2d"),viewport:vp}).promise;
-
-    qrs.push(...scanMultipleQR(canvas,i));
-  }
-
-  /* ========= FEATURES ========= */
-  const rfcs=[...new Set(text.match(/[A-Z]{4}\d{6}[A-Z0-9]{3}/g)||[])];
-  if(rfcs.length!==1){score+=WEIGHTS.RFC_INCONSISTENT;features.push("RFC inconsistente");}
-
-  if(/Asalariado1/.test(text)){score+=WEIGHTS.ASALARIADO1;features.push("Error 'Asalariado1'");}
-
-  if(!/idCIF:\s*\d+/.test(text)){score+=WEIGHTS.IDCIF_MISSING;features.push("idCIF ausente");}
-
-  if(/RFC:\s*CURP:/i.test(text)){score+=WEIGHTS.PLACEHOLDERS;features.push("Placeholders vacíos");}
-
-  const dates=text.match(/\d{2}\/\d{2}\/\d{4}/g)||[];
-  if(new Set(dates).size>1){score+=WEIGHTS.DOUBLE_EMISSION;features.push("Múltiples fechas");}
-  else score+=WEIGHTS.COHERENT_DATES;
-
-  const gob=qrs.filter(q=>q.isGob);
-  const nonGob=qrs.filter(q=>!q.isGob);
-  const domains=[...new Set(qrs.map(q=>q.domain))];
-
-  if(gob.length&&nonGob.length){score+=WEIGHTS.MIXED_QR;features.push("QR mezclados");}
-  if(domains.length>1&&nonGob.length){score+=WEIGHTS.MULTI_DOMAINS;features.push("Dominios QR distintos");}
-  if(nonGob.length===0&&gob.length>0){score+=WEIGHTS.ALL_GOB_QR;}
-
-  qrs.forEach(q=>{ if(q.type==="interno") score+=WEIGHTS.QR_INTERNO; });
-
-  /* ========= CLASIFICACIÓN ========= */
-  let level="ok",result="🟢 Documento ORIGINAL del SAT";
-  if(score>=7){level="bad";result="🔴 POSIBLE CLON";}
-  else if(score>=3){level="warn";result="🟡 Documento SOSPECHOSO";}
-
-  /* ========= GUARDAR (CLAVE) ========= */
-  saveAnalysis(score, result, features);
-
-  /* ========= RENDER ========= */
-  out.innerHTML=`
-  <div class="card ${level}">
-    <h3>${result}</h3>
-    <p><b>Score final:</b> ${score}</p>
-    <ul>${features.map(f=>`<li>${f}</li>`).join("")}</ul>
-  </div>
-  <div class="card">
-    <h4>🔍 Análisis de QRs</h4>
-    <ul>
-      ${qrs.map(q=>`
-        <li>Página ${q.page} → ${q.domain}
-        <span class="tag ${q.type==="validación"?"okTag":q.type==="interno"?"warnTag":"badTag"}">${q.type}</span>
-        </li>`).join("")}
-    </ul>
-  </div>`;
-}
+startApp();
 </script>
 </body>
 </html>
