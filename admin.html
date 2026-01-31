@@ -31,7 +31,7 @@ small{color:#64748b}
 <!-- PANEL -->
 <div id="panel" class="hidden">
 
-<h1>🛡️ Panel Admin · Antifraude SAT</h1>
+<h1>🛡️ Panel Admin</h1>
 
 <div class="card">
 <h3>➕ Crear usuario</h3>
@@ -50,78 +50,76 @@ small{color:#64748b}
 <ul id="history"></ul>
 </div>
 
-<button onclick="logout()" style="background:#dc2626">Cerrar sesión</button>
+<button onclick="logout()" style="background:#dc2626">
+Cerrar sesión
+</button>
 
-<small>Panel protegido · Fase local · v1</small>
+<small>Panel Admin local · v1</small>
 
 </div>
 </div>
 
 <script>
-/* =============================
-   CONFIG ADMIN
-============================= */
-const ADMIN_PASSWORD = "satadmin123";
+const ADMIN_PASSWORD="satadmin123";
 
-/* =============================
-   AUTH ADMIN
-============================= */
+/* ========= AUTH ========= */
 function adminLogin(){
-  if(adminPass.value !== ADMIN_PASSWORD)
+  if(adminPass.value!==ADMIN_PASSWORD)
     return alert("Contraseña incorrecta");
-
   sessionStorage.setItem("adminAuth","ok");
-  loginAdmin.classList.add("hidden");
-  panel.classList.remove("hidden");
-  loadUsers();
-  loadHistory();
+  showPanel();
 }
-
 function logout(){
   sessionStorage.removeItem("adminAuth");
   location.reload();
 }
-
-if(sessionStorage.getItem("adminAuth")==="ok"){
+function showPanel(){
   loginAdmin.classList.add("hidden");
   panel.classList.remove("hidden");
   loadUsers();
   loadHistory();
 }
+if(sessionStorage.getItem("adminAuth")==="ok") showPanel();
 
-/* =============================
-   USERS
-============================= */
+/* ========= USERS ========= */
 function getUsers(){
   return JSON.parse(localStorage.getItem("users")||"[]");
 }
 function saveUsers(u){
   localStorage.setItem("users",JSON.stringify(u));
 }
-
 function createUser(){
   const u=newUser.value.trim();
   const p=newPass.value.trim();
   if(!u||!p) return alert("Datos incompletos");
-
   const users=getUsers();
-  if(users.find(x=>x.username===u))
-    return alert("Usuario ya existe");
-
+  if(users.find(x=>x.username===u)) return alert("Usuario existe");
   users.push({username:u,password:p});
   saveUsers(users);
   newUser.value="";newPass.value="";
   loadUsers();
 }
-
+function deleteUser(i){
+  if(!confirm("¿Eliminar usuario?")) return;
+  const users=getUsers();
+  users.splice(i,1);
+  saveUsers(users);
+  loadUsers();
+}
 function loadUsers(){
   const users=getUsers();
-  userList.innerHTML=users.map(u=>`<li>${u.username}</li>`).join("");
+  userList.innerHTML=users.map((u,i)=>`
+    <li>
+      ${u.username}
+      <button onclick="deleteUser(${i})"
+        style="background:#dc2626;color:#fff;margin-left:10px">
+        Eliminar
+      </button>
+    </li>
+  `).join("");
 }
 
-/* =============================
-   HISTORY
-============================= */
+/* ========= HISTORY ========= */
 function loadHistory(){
   const data=JSON.parse(localStorage.getItem("analysis")||"[]");
   history.innerHTML=data.slice().reverse().map(d=>`
