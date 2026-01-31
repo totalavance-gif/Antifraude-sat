@@ -12,6 +12,7 @@ body{font-family:system-ui;background:#f1f5f9;margin:0}
 box-shadow:0 6px 16px rgba(0,0,0,.08)}
 input,button{padding:10px;width:100%;margin-top:6px}
 button{background:#2563eb;color:#fff;border:none;border-radius:10px}
+.hidden{display:none}
 ul{padding-left:18px}
 small{color:#64748b}
 </style>
@@ -20,7 +21,17 @@ small{color:#64748b}
 <body>
 <div class="container">
 
-<h1>🛡️ Admin · Antifraude SAT</h1>
+<!-- LOGIN ADMIN -->
+<div id="loginAdmin" class="card">
+<h2>🔐 Acceso Administrador</h2>
+<input id="adminPass" type="password" placeholder="Contraseña admin">
+<button onclick="adminLogin()">Entrar</button>
+</div>
+
+<!-- PANEL -->
+<div id="panel" class="hidden">
+
+<h1>🛡️ Panel Admin · Antifraude SAT</h1>
 
 <div class="card">
 <h3>➕ Crear usuario</h3>
@@ -39,16 +50,53 @@ small{color:#64748b}
 <ul id="history"></ul>
 </div>
 
-<small>Panel local · Fase 1 · Sin Firebase</small>
+<button onclick="logout()" style="background:#dc2626">Cerrar sesión</button>
 
+<small>Panel protegido · Fase local · v1</small>
+
+</div>
 </div>
 
 <script>
+/* =============================
+   CONFIG ADMIN
+============================= */
+const ADMIN_PASSWORD = "satadmin123";
+
+/* =============================
+   AUTH ADMIN
+============================= */
+function adminLogin(){
+  if(adminPass.value !== ADMIN_PASSWORD)
+    return alert("Contraseña incorrecta");
+
+  sessionStorage.setItem("adminAuth","ok");
+  loginAdmin.classList.add("hidden");
+  panel.classList.remove("hidden");
+  loadUsers();
+  loadHistory();
+}
+
+function logout(){
+  sessionStorage.removeItem("adminAuth");
+  location.reload();
+}
+
+if(sessionStorage.getItem("adminAuth")==="ok"){
+  loginAdmin.classList.add("hidden");
+  panel.classList.remove("hidden");
+  loadUsers();
+  loadHistory();
+}
+
+/* =============================
+   USERS
+============================= */
 function getUsers(){
-  return JSON.parse(localStorage.getItem("users") || "[]");
+  return JSON.parse(localStorage.getItem("users")||"[]");
 }
 function saveUsers(u){
-  localStorage.setItem("users", JSON.stringify(u));
+  localStorage.setItem("users",JSON.stringify(u));
 }
 
 function createUser(){
@@ -60,7 +108,7 @@ function createUser(){
   if(users.find(x=>x.username===u))
     return alert("Usuario ya existe");
 
-  users.push({username:u,password:p,role:"user"});
+  users.push({username:u,password:p});
   saveUsers(users);
   newUser.value="";newPass.value="";
   loadUsers();
@@ -71,18 +119,18 @@ function loadUsers(){
   userList.innerHTML=users.map(u=>`<li>${u.username}</li>`).join("");
 }
 
+/* =============================
+   HISTORY
+============================= */
 function loadHistory(){
   const data=JSON.parse(localStorage.getItem("analysis")||"[]");
-  history.innerHTML=data.reverse().map(d=>`
+  history.innerHTML=data.slice().reverse().map(d=>`
     <li>
       <b>${d.user}</b> · ${d.date}<br>
       ${d.result} (Score ${d.score})
     </li>
   `).join("");
 }
-
-loadUsers();
-loadHistory();
 </script>
 </body>
 </html>
