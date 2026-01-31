@@ -48,6 +48,10 @@ button{background:#2563eb;color:#fff;border:none;border-radius:10px}
 <h1>🔍 Antifraude SAT v3.0</h1>
 <p>Usuario: <b id="currentUser"></b></p>
 
+<button onclick="logoutUser()" style="background:#dc2626">
+Cerrar sesión
+</button>
+
 <div class="card">
   <h3>📄 Subir constancia SAT (PDF)</h3>
   <input type="file" accept="application/pdf" id="pdfInput">
@@ -66,10 +70,14 @@ function getUsers(){
 function login(){
   const u=user.value.trim();
   const p=pass.value.trim();
-  const ok=getUsers().find(x=>x.username===u&&x.password===p);
+  const ok=getUsers().find(x=>x.username===u && x.password===p);
   if(!ok) return alert("Credenciales inválidas");
   localStorage.setItem("sessionUser",u);
   start();
+}
+function logoutUser(){
+  localStorage.removeItem("sessionUser");
+  location.reload();
 }
 function start(){
   const u=localStorage.getItem("sessionUser");
@@ -143,7 +151,6 @@ async function analyzePDF(e){
 
   const rfcs=[...new Set(text.match(/[A-Z]{4}\d{6}[A-Z0-9]{3}/g)||[])];
   if(rfcs.length!==1){score+=WEIGHTS.RFC_INCONSISTENT;features.push("RFC inconsistente");}
-
   if(/Asalariado1/.test(text)){score+=WEIGHTS.ASALARIADO1;features.push("Error Asalariado1");}
   if(!/idCIF:\s*\d+/.test(text)){score+=WEIGHTS.IDCIF_MISSING;features.push("idCIF ausente");}
 
@@ -164,7 +171,6 @@ async function analyzePDF(e){
   if(score>=7){level="bad";result="🔴 POSIBLE CLON";}
   else if(score>=3){level="warn";result="🟡 SOSPECHOSO";}
 
-  /* 🔴 ESTA LÍNEA ES LA CLAVE */
   saveAnalysis(score,result,features);
 
   out.innerHTML=`
